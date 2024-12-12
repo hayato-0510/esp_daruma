@@ -13,8 +13,11 @@ unsigned long buttonPressStart = 0; // ボタンが押され始めた時間
 bool isReading = false;             // 現在読み取り中かどうかのフラグ
 bool dataSent = false;              // データ送信が完了したかどうか
 
+static const char *client_ssid = "FairyGuide_Connect";
+static const char *client_password = "password";
+
 // マスターのMACアドレス（送信先）
-uint8_t masterAddress[] = {0xE8, 0x6B, 0xEA, 0x22, 0x59, 0x88};
+uint8_t masterAddress[] = {0xA0,0xDD,0x6C,0x69,0xC2,0xE4};
 
 // Wi-FiとESP-NOWの設定
 void WiFi_setup();
@@ -22,9 +25,16 @@ void esp_now_setup();
 void onSent(const uint8_t *mac_addr, esp_now_send_status_t status);
 void onReceive(const uint8_t *mac_addr, const uint8_t *data, int data_len);
 
+typedef struct struct_message
+{
+  char message[250];
+} struct_message;
+
+struct_message dataToSend;
+
 void setup() {
     pinMode(BTN_PIN, INPUT);
-    Serial.begin(9600);
+    Serial.begin(115200);
     while (!Serial);
 
     SPI.begin();
@@ -40,8 +50,8 @@ void loop() {
     if (isReading) {
         if (!dataSent) {
             // 「COUNTDOWN」を送信
-            const char* message = "COUNTDOWN";
-            esp_err_t result = esp_now_send(masterAddress, (const uint8_t*)message, strlen(message));
+            snprintf(dataToSend.message, sizeof(dataToSend.message), "COUNTDOWN");
+            esp_err_t result = esp_now_send(masterAddress, (uint8_t *)&dataToSend, sizeof(dataToSend));
             if (result == ESP_OK) {
                 Serial.println("Data sent: COUNTDOWN");
                 dataSent = true; // 一度だけ送信する
@@ -81,11 +91,22 @@ void loop() {
     }
 }
 
-void WiFi_setup() {
-    WiFi.mode(WIFI_STA);
-    WiFi.begin();
-    while (WiFi.status() != WL_CONNECTED) delay(100);
+void WiFi_setup()
+{
+  WiFi.mode(WIFI_STA); // Wi-FiをStationモードに設定
+  WiFi.begin(client_ssid, client_password);
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    Serial.print(".");
+    delay(100);
+  }
+
+  if (WiFi.status() == WL_CONNECTED)
+  {
     Serial.println("Connected Wifi");
+  }
+
+  Serial.println("MACアドレス: " + WiFi.macAddress());
 }
 
 void esp_now_setup() {
@@ -97,6 +118,11 @@ void esp_now_setup() {
     memcpy(peerInfo.peer_addr, masterAddress, 6);
     peerInfo.channel = WiFi.channel();
     peerInfo.encrypt = false;
+    if (esp_now_add_peer(&peerInfo) != ESP_OK)
+  {
+    Serial.println("マスターの登録に失敗しました");
+    return;
+  }
     esp_now_add_peer(&peerInfo);
     esp_now_register_send_cb(onSent);
     esp_now_register_recv_cb(onReceive); // 受信コールバックを登録
