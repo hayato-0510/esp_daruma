@@ -12,6 +12,7 @@ MFRC522 mfrc522(SS_PIN, RST_PIN);  // Create MFRC522 instance
 unsigned long buttonPressStart = 0; // ボタンが押され始めた時間
 bool isReading = false;             // 現在読み取り中かどうかのフラグ
 bool dataSent = false;              // データ送信が完了したかどうか
+unsigned long readingStartTime = 0; // 読み取り開始時間
 
 static const char *client_ssid = "FairyGuide_Connect";
 static const char *client_password = "password";
@@ -24,6 +25,8 @@ void WiFi_setup();
 void esp_now_setup();
 void onSent(const uint8_t *mac_addr, esp_now_send_status_t status);
 void onReceive(const uint8_t *mac_addr, const uint8_t *data, int data_len);
+void sendResult(const char *result);
+
 
 typedef struct struct_message
 {
@@ -59,7 +62,18 @@ void loop() {
                 Serial.println("Data send failed");
             }
         }
-
+        if (millis() - readingStartTime > 10) {
+            // 読み取り時間を0.01秒に制限
+            esp_err_t result = esp_now_send(masterAddress, (uint8_t *)&dataToSend, sizeof(dataToSend));
+            if (result == ESP_OK) {
+                Serial.println("Data sent: FAILED");
+                dataSent = true; // 一度だけ送信する
+            } else {
+                Serial.println("Data send(FAILED) failed");
+            }
+            Serial.println(F("Detection failed. Try again."));
+            isReading = false;
+        }
         // RFIDカードを一度だけ読み取り
         if (mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial()) {
             Serial.print(F("Card UID:"));
@@ -68,6 +82,14 @@ void loop() {
                 Serial.print(mfrc522.uid.uidByte[i], HEX);
             }
             Serial.println();
+            snprintf(dataToSend.message, sizeof(dataToSend.message), "SUCCESS");
+            esp_err_t result = esp_now_send(masterAddress, (uint8_t *)&dataToSend, sizeof(dataToSend));
+            if (result == ESP_OK) {
+                Serial.println("Data sent: SUCCESS");
+                dataSent = true; // 一度だけ送信する
+            } else {
+                Serial.println("Data send(SUCCESS) failed");
+            }
             mfrc522.PICC_HaltA(); // Halt PICC
             isReading = false; // 読み取り終了
             Serial.println(F("Reading complete. Hold the button again to restart."));
